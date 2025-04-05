@@ -1,0 +1,82 @@
+// send sensor data(temp and humid) and STOP sign
+// recieve check msg
+
+#include <df_can.h>
+#include <SPI.h>
+#include "DHT.h"
+#define DHTPIN 3
+#define DHTTYPE DHT11
+
+DHT dht(DHTPIN, DHTTYPE);  
+const int SPI_CS_PIN = 10;  
+MCPCAN CAN(SPI_CS_PIN);
+
+unsigned char len = 0;
+unsigned char id = 0;
+unsigned char buf[8];
+
+unsigned long prev_N4 = 0;
+unsigned long prev_N3 = 0;
+unsigned long prev_N1 = 0;
+const unsigned long timeout = 5000;  // 3초
+
+void setup() {
+  Serial.begin(9600);
+  int count = 50;
+  do {
+    CAN.init();
+    CAN.init_Mask(MCP_RXM0, 0, 0xF0);
+    CAN.init_Mask(MCP_RXM1, 0, 0xF0);
+    
+    CAN.init_Filter(MCP_RXF0, 0, 0x10);
+
+    if (CAN_OK == CAN.begin(CAN_500KBPS)) {
+      Serial.println("CAN BUS Shield init ok!");
+      break;
+    }
+    else {
+      delay(100);
+      if (count == 0)
+        Serial.println("CAN BUS Shield init failed");
+    }
+  }while (count--);
+
+  attachInterrupt(0, MCP2515_ISR, FALLING);
+  dht.begin();  
+}
+
+void MCP2515_ISR() {
+  len = 0;
+  for (int i=0; i<8; i++) {
+    buf[i] = 0;
+  }
+  while (CAN_MSGAVAIL == CAN.checkReceive()) {
+    CAN.readMsgBuf(&len, buf);
+    id = CAN.getCanId();
+
+    if (id == 0x10) prev_N4 = millis(); // serial monitor
+    if (id == 0x11) prev_N3 = millis(); // LCD
+    if (id == 0x12) prev_N1 = millis(); // LED and Motor
+  }
+}
+
+void loop() {
+  unsigned char temp = (unsigned char)dht.readTemperature();
+  unsigned char humi = (unsigned char)dht.readHumidity();  
+  unsigned char data03[2] = {temp, humi};
+
+  if (isnan(temp) || isnan(humi)) {
+    Serial.println("Failed to read from DHT sensor.");
+    return;
+  }
+
+  CAN.sendMsgBuf(0x03, 0, 8, data03);
+  delay(2000);
+
+  unsigned long now = millis();
+  if ((now - prev_N4 > timeout) || (now - prev_N3 > timeout) || (now - prev_N1 > timeout)) {
+    Serial.println("연결 끊김");
+    CAN.sendMsgBuf(0x30, 0, 8, (unsigned char*)"ALL_STOP");
+    delay(2000);
+  }
+}
