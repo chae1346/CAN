@@ -1,0 +1,150 @@
+// NODE1 - Port3(right) - LED and Motor
+// send Debugging msg to node 4 and check msg to node 2
+// receive sensor data from node 2
+// control LED and motor based on sensor data
+
+#include <df_can.h>
+#include <SPI.h>
+#include "DHT.h"
+#define DHTPIN 3
+#define DHTTYPE DHT11
+
+DHT dht(DHTPIN, DHTTYPE);  
+const int SPI_CS_PIN = 10;  
+MCPCAN CAN(SPI_CS_PIN);
+
+const int green = 2;
+const int yellow = 3;
+const int red = 4;
+const int moter = 5;
+
+unsigned char len = 0;
+unsigned char id = 0;
+unsigned char buf[8];
+
+void setup()
+{
+  Serial.begin(9600);
+  pinMode(red, OUTPUT);
+  pinMode(yellow, OUTPUT);
+  pinMode(green, OUTPUT);
+  pinMode(motor, OUTPUT);
+
+  digitalWrite(red, LOW);
+  digitalWrite(yellow, LOW);
+  digitalWrite(green, HIGH);
+  analogWrite(motor, 0);
+
+  int count = 50;
+  do {
+    CAN.init();
+    CAN.init_Mask(MCP_RXM0, 0, 0x7ff);
+    CAN.init_Mask(MCP_RXM1, 0, 0x7ff);
+    CAN.init_Filter(MCP_RXF0, 0, 0x03); // recieving ID 0x03 - sensor
+
+    if(CAN_OK == CAN.begin(CAN_500KBPS)) // 0.5Mbps
+    {
+      Serial.println("CAN BUS Shield init ok!");
+      break;
+    }
+    else
+    {
+      delay(100);
+      if (count == 0)
+        Serial.println("CAN BUS Shield init failed");
+    }
+  }while(count--);
+
+  /* recieveing msg => INT pin 0 : LOW => processing MCP2515_ISR */
+  attachInterrupt(0, MCP2515_ISR, FALLING);
+  dht.begin(); // init sensor 
+}
+
+char prev_LED_state = ' ';
+char LED_state = ' ';
+
+char prev_motor_state = ' ';
+char motor_state = ' ';
+
+void MCP2515_ISR()
+{
+  len = 0;
+  for (int i=0; i<8; i++)
+    {  
+      buf[i] = 0;
+    }
+  while (CAN_MSGAVAIL == CAN.checkReceive()) 
+  {
+    CAN.readMsgBuf(&len, buf);
+    id = CAN.getCanId();
+
+    if (id == 0x03)
+    {
+      Serial.print("\nID : ");  Serial.println(id); // recieved message ID
+      
+      int temp = buf[0];
+      int humid = buf[1];
+
+      Serial.print("Temperature : ");
+      Serial.print(temp); Serial.println("°C");
+      Serial.print("Humidity : ");
+      Serial.print(humid); Serial.println("%");
+
+      sendDebug("N1_RX__");
+
+      /* LED Control and Send Debugging message */
+      if (temp >= 30)
+        LED_state = 'R';
+      else if (temp >= 27)
+        LED_state = 'Y';
+      else LED_state = 'G';
+
+      if (LED_state != prev_LED_state) {
+        digitalWrite(red, LED_state == 'R' ? HIGH : LOW);
+        digitalWrite(yellow, LED_state == 'Y' ? HIGH : LOW);
+        digitalWrite(green, LED_state == 'G' ? HIGH : LOW);
+
+        if (LED_state == 'R') sendDebug("N1_LED_R");
+        else if (LED_state == 'Y') sendDebug("N1_LED_Y");
+        else sendDebug("N1_LED_G");
+
+        prev_LED_state = LED_state;
+      }
+
+      /* MOTOR Control and Send Debugging message */
+      if (humid >= 60) {
+        motor_state = 'H';
+      } else if (humid >= 40) {
+        motor_state = 'L';
+      } else {
+        motor_state = '0';
+      }
+
+      if (motor_state != prev_motor_state) {
+        if (motor_state == 'H') {
+          analogWrite(motor, 255);
+          sendDebug("N1_MOT_H");
+        } else if (motor_state == 'L') {
+          analogWrite(motor, 100);
+          sendDebug("N1_MOT_L");
+        } else {
+          analogWrite(motor, 0);
+          sendDebug("N1_MOT_0");
+        }
+        prev_motor_state = motor_state;
+      }
+    }
+  }
+}
+
+void sendDebug(const char* msg)
+{
+  char buf[8] = {0};
+  strcpy(buf, msg, 8);
+  CAN.sendMsgBuf(0x01, 0, 8, (unsigned char*)buf);
+}
+
+void loop()
+{  
+
+}
