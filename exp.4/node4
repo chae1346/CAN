@@ -1,0 +1,60 @@
+// send connect
+// recieve debugging msg and display
+
+#include <df_can.h>
+#include <SPI.h>
+
+const int SPI_CS_PIN = 10;
+MCPCAN CAN(SPI_CS_PIN);
+
+unsigned char len = 0;
+unsigned char id = 0;
+unsigned char buf[8];
+unsigned char prev_connect = 0;
+
+void setup() {
+  Serial.begin(9600);
+  int count = 50;
+  do {
+    CAN.init();
+    CAN.init_Mask(MCP_RXM0, 0, 0x7FF);
+    CAN.init_Mask(MCP_RXM1, 0, 0x7FF);
+    CAN.init_Filter(MCP_RXF0, 0, 0x20);
+
+    if (CAN_OK == CAN.begin(CAN_500KBPS)) {
+      Serial.println("CAN BUS Shield init ok!");
+      break;
+    }
+    else {
+      delay(100);
+      if (count == 0)
+        Serial.println("CAN BUS Shield init failed");
+    }
+  } while (count--);
+
+  attachInterrupt(0, MCP2515_ISR, FALLING);
+}
+
+void MCP2515_ISR() {
+  len = 0;
+  for (int i=0; i<8; i++) {
+    buf[i] = 0;
+  }
+  while (CAN_MSGAVAIL == CAN.checkReceive()) {
+    CAN.readMsgBuf(&len, buf);
+    id = CAN.getCanId();
+
+    Serial.print("[DEBUG] ");
+    for (int i = 0; i < len; i++) {
+      Serial.write(buf[i]);
+    }
+    Serial.println();
+  }
+}
+
+void loop() {
+  if (millis() - prev_connect > 3000) {
+    prev_connect = millis();
+    CAN.sendMsgBuf(0x10, 0, 8, (unsigned char*)"N4_OK__");
+  }
+}
