@@ -1,38 +1,12 @@
-// NODE1 - Port3(right) - LED and Step Motor
-// send Debugging msg to node 4 and send check msg to node 2
-// receive sensor data from node 2
-// control LED and motor based on sensor data
-
 #include <df_can.h>
 #include <SPI.h>
-#include "DHT.h"
-#define DHTPIN 3
-#define DHTTYPE DHT11
 
-DHT dht(DHTPIN, DHTTYPE);  
 const int SPI_CS_PIN = 10;  
 MCPCAN CAN(SPI_CS_PIN);
 
-const int green = 4;
+const int red = 4;
 const int yellow = 5;
-const int red = 6;
-
-const int IN1 = 8;
-const int IN2 = 9;
-const int IN3 = 10;
-const int IN4 = 11;
-
-int step_seq[4][4] = {
-  {1, 0, 0, 0},
-  {0, 1, 0, 0},
-  {0, 0, 1, 0},
-  {0, 0, 0, 1}
-};
-
-int now_step = 0;
-unsigned long prev_step_time = 0;
-int motor_delay = 5; // ms
-bool motor_enabled = false;
+const int green = 6;
 
 unsigned char len = 0;
 unsigned char id = 0;
@@ -46,137 +20,80 @@ void setup()
   pinMode(yellow, OUTPUT);
   pinMode(green, OUTPUT);
 
-  pinMode(IN1, OUTPUT);
-  pinMode(IN2, OUTPUT);
-  pinMode(IN3, OUTPUT);
-  pinMode(IN4, OUTPUT);
-
   digitalWrite(red, LOW);
   digitalWrite(yellow, LOW);
-  digitalWrite(green, HIGH);
-  
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, LOW);
+  digitalWrite(green, LOW);
 
   int count = 50;
   do {
     CAN.init();
     CAN.init_Mask(MCP_RXM0, 0, 0x7ff);
     CAN.init_Mask(MCP_RXM1, 0, 0x7ff);
-    CAN.init_Filter(MCP_RXF0, 0, 0x03); // recieving ID 0x03 - sensor
+    CAN.init_Filter(MCP_RXF0, 0, 0x03);
 
-    if(CAN_OK == CAN.begin(CAN_500KBPS)) { // 0.5Mbps
+    if(CAN_OK == CAN.begin(CAN_500KBPS)) {
       Serial.println("CAN BUS Shield init ok!");
+      sendDebug("N1_Ready");
       break;
-    }
-    else {
+    } else {
       delay(100);
       if (count == 0)
         Serial.println("CAN BUS Shield init failed");
     }
   } while(count--);
 
-  /* recieveing msg => INT pin 0 : LOW => processing MCP2515_ISR */
   attachInterrupt(0, MCP2515_ISR, FALLING);
-  dht.begin(); // init sensor 
 }
 
 char prev_LED_state = ' ';
 char LED_state = ' ';
 
-char prev_motor_state = ' ';
-char motor_state = ' ';
-
 void MCP2515_ISR() {
   len = 0;
-  for (int i=0; i<8; i++) buf[i] = 0;
+  for (int i = 0; i < 8; i++) buf[i] = 0;
 
-  while (CAN_MSGAVAIL == CAN.checkReceive()) 
-  {
+  while (CAN_MSGAVAIL == CAN.checkReceive()) {
     CAN.readMsgBuf(&len, buf);
     id = CAN.getCanId();
+    sendDebug("N1_reciv");
+    Serial.print("\nID : "); Serial.println(id);
+    
+    int light = (buf[0] << 8) | buf[1];
+    Serial.print("Light Level : ");
+    Serial.println(light);
 
-    if (id == 0x03)
-    {
-      sendDebug("N1_reciv");
-      Serial.print("\nID : ");  Serial.println(id); // recieved message ID
-      
-      int temp = buf[0];
-      int humid = buf[1];
+    if (light >= 800)
+      LED_state = 'R';
+    else if (light >= 300)
+      LED_state = 'Y';
+    else
+      LED_state = 'G';
 
-      Serial.print("Temperature : ");
-      Serial.print(temp); Serial.println("°C");
-      Serial.print("Humidity : ");
-      Serial.print(humid); Serial.println("%");
+    if (LED_state != prev_LED_state) {
+      digitalWrite(red, LOW);
+      digitalWrite(yellow, LOW);
+      digitalWrite(green, LOW);
 
-      /* LED Control and Send Debugging message */
-      if (temp >= 30)
-        LED_state = 'R';
-      else if (temp >= 27)
-        LED_state = 'Y';
-      else LED_state = 'G';
+      digitalWrite(red, LED_state == 'R' ? HIGH : LOW);
+      digitalWrite(yellow, LED_state == 'Y' ? HIGH : LOW);
+      digitalWrite(green, LED_state == 'G' ? HIGH : LOW);
 
-      if (LED_state != prev_LED_state) {
-        digitalWrite(red, LOW);
-        digitalWrite(yellow, LOW);
-        digitalWrite(green, LOW);
+      if (LED_state == 'R') sendDebug("N1_LED_R");
+      else if (LED_state == 'Y') sendDebug("N1_LED_Y");
+      else sendDebug("N1_LED_G");
 
-        digitalWrite(red, LED_state == 'R' ? HIGH : LOW);
-        digitalWrite(yellow, LED_state == 'Y' ? HIGH : LOW);
-        digitalWrite(green, LED_state == 'G' ? HIGH : LOW);
-
-        if (LED_state == 'R') sendDebug("N1_LED_R");
-        else if (LED_state == 'Y') sendDebug("N1_LED_Y");
-        else sendDebug("N1_LED_G");
-
-        prev_LED_state = LED_state;
-      }
-
-      /* MOTOR Control and Send Debugging message */
-      if (humid >= 60) {
-        motor_state = 'H';
-      } else if (humid >= 40) {
-        motor_state = 'L';
-      } else {
-        motor_state = '0';
-      }
-
-      if (motor_state != prev_motor_state) {
-        if (motor_state == 'H') {
-          motor_delay = 3;  // fast
-          sendDebug("N1_MOT_H");
-        } else if (motor_state == 'L') {
-          motor_delay = 7;  // medium
-          sendDebug("N1_MOT_L");
-        } else {
-          motor_delay = 12; // slow
-          sendDebug("N1_MOT_0");
-        }
-        motor_enabled = true;
-        prev_motor_state = motor_state;
-      }
+      prev_LED_state = LED_state;
     }
   }
 }
 
-void sendDebug(const char* msg)
-{
-  CAN.sendMsgBuf(0x01, 0, 8, (unsigned char*)msg);
+void sendDebug(const char* msg) {
+  Serial.println(msg);
+  CAN.sendMsgBuf(0x20, 0, 8, (unsigned char*)msg);
 }
 
 void loop()
-{  
-  if (millis() - prev_step_time >= motor_delay) {
-    prev_step_time = millis();
-
-    // Step forward 1 step
-    digitalWrite(IN1, step_seq[now_step][0]);
-    digitalWrite(IN2, step_seq[now_step][1]);
-    digitalWrite(IN3, step_seq[now_step][2]);
-    digitalWrite(IN4, step_seq[now_step][3]);
-
-    now_step = (now_step + 1) % 4;
-  }
+{
+  CAN.sendMsgBuf(0x12, 0, 8, "N1_is_OK");
+  delay(3000);
 }
