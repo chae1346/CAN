@@ -1,99 +1,83 @@
 #include <df_can.h>
 #include <SPI.h>
 
+#define LIGHT_PIN A0
+
 const int SPI_CS_PIN = 10;  
 MCPCAN CAN(SPI_CS_PIN);
-
-const int red = 4;
-const int yellow = 5;
-const int green = 6;
 
 unsigned char len = 0;
 unsigned char id = 0;
 unsigned char buf[8];
 
-void setup()
-{
+unsigned long prev_N4 = 0;
+unsigned long prev_N3 = 0;
+unsigned long prev_N1 = 0;
+const unsigned long timeout = 5000;
+
+void setup() {
   Serial.begin(9600);
-
-  pinMode(red, OUTPUT);
-  pinMode(yellow, OUTPUT);
-  pinMode(green, OUTPUT);
-
-  digitalWrite(red, LOW);
-  digitalWrite(yellow, LOW);
-  digitalWrite(green, LOW);
-
   int count = 50;
   do {
     CAN.init();
-    CAN.init_Mask(MCP_RXM0, 0, 0x7ff);
-    CAN.init_Mask(MCP_RXM1, 0, 0x7ff);
-    CAN.init_Filter(MCP_RXF0, 0, 0x03);
+    CAN.init_Mask(MCP_RXM0, 0, 0xF0);
+    CAN.init_Mask(MCP_RXM1, 0, 0xF0);
+    CAN.init_Filter(MCP_RXF0, 0, 0x10); // reciece only 0x1n
 
-    if(CAN_OK == CAN.begin(CAN_500KBPS)) {
+    if (CAN_OK == CAN.begin(CAN_500KBPS)) {
       Serial.println("CAN BUS Shield init ok!");
-      sendDebug("N1_Ready");
+      sendDebug("N2_Ready");
       break;
-    } else {
+    }
+    else {
       delay(100);
       if (count == 0)
         Serial.println("CAN BUS Shield init failed");
     }
-  } while(count--);
+  } while (count--);
 
   attachInterrupt(0, MCP2515_ISR, FALLING);
 }
 
-char prev_LED_state = ' ';
-char LED_state = ' ';
-
 void MCP2515_ISR() {
   len = 0;
-  for (int i = 0; i < 8; i++) buf[i] = 0;
-
+  for (int i = 0; i < 8; i++) {
+    buf[i] = 0;
+  }
   while (CAN_MSGAVAIL == CAN.checkReceive()) {
     CAN.readMsgBuf(&len, buf);
     id = CAN.getCanId();
-    sendDebug("N1_reciv");
-    Serial.print("\nID : "); Serial.println(id);
-    
-    int light = (buf[0] << 8) | buf[1];
-    Serial.print("Light Level : ");
-    Serial.println(light);
 
-    if (light >= 800)
-      LED_state = 'R';
-    else if (light >= 300)
-      LED_state = 'Y';
-    else
-      LED_state = 'G';
-
-    if (LED_state != prev_LED_state) {
-      digitalWrite(red, LOW);
-      digitalWrite(yellow, LOW);
-      digitalWrite(green, LOW);
-
-      digitalWrite(red, LED_state == 'R' ? HIGH : LOW);
-      digitalWrite(yellow, LED_state == 'Y' ? HIGH : LOW);
-      digitalWrite(green, LED_state == 'G' ? HIGH : LOW);
-
-      if (LED_state == 'R') sendDebug("N1_LED_R");
-      else if (LED_state == 'Y') sendDebug("N1_LED_Y");
-      else sendDebug("N1_LED_G");
-
-      prev_LED_state = LED_state;
-    }
+    if (id == 0x10) prev_N4 = millis(); // serial monitor
+    if (id == 0x11) prev_N3 = millis(); // LCD
+    if (id == 0x12) prev_N1 = millis(); // LED and Motor
   }
 }
 
 void sendDebug(const char* msg) {
-  Serial.println(msg);
   CAN.sendMsgBuf(0x20, 0, 8, (unsigned char*)msg);
 }
 
-void loop()
-{
-  CAN.sendMsgBuf(0x12, 0, 8, "N1_is_OK");
-  delay(3000);
+void loop() {
+  int light = analogRead(LIGHT_PIN);
+  if (light < 0 || light > 1023)
+  {
+    Serial.println("Failed to read from DHT sensor.");
+    return;
+  }
+  Serial.print("Light Level: ");
+  Serial.println(light);
+
+  unsigned char data[2];
+  data[0] = (light >> 8) & 0xFF; // upper
+  data[1] = light & 0xFF;         
+
+  CAN.sendMsgBuf(0x03, 0, 2, data);
+  delay(2000);
+
+  unsigned long now = millis();
+  if ((now - prev_N4 > timeout) || (now - prev_N3 > timeout) || (now - prev_N1 > timeout)) {
+    CAN.sendMsgBuf(0x30, 0, 8, (unsigned char*)"ALL_STOP");
+    delay(2000);
+  }
 }
