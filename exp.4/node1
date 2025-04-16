@@ -94,6 +94,4 @@ void sendDebug(const char* msg) {
 
 void loop()
 {
-  CAN.sendMsgBuf(0x12, 0, 8, "N1_is_OK");
-  delay(3000);
 }
