@@ -11,8 +11,6 @@ unsigned char id = 0;
 unsigned char buf[8];
 
 unsigned long prev_N4 = 0;
-unsigned long prev_N3 = 0;
-unsigned long prev_N1 = 0;
 const unsigned long timeout = 5000;
 
 void setup() {
@@ -20,9 +18,9 @@ void setup() {
   int count = 50;
   do {
     CAN.init();
-    CAN.init_Mask(MCP_RXM0, 0, 0xF0);
-    CAN.init_Mask(MCP_RXM1, 0, 0xF0);
-    CAN.init_Filter(MCP_RXF0, 0, 0x10); // reciece only 0x1n
+    CAN.init_Mask(MCP_RXM0, 0, 0x7FF);
+    CAN.init_Mask(MCP_RXM1, 0, 0x7FF);
+    CAN.init_Filter(MCP_RXF0, 0, 0x10);
 
     if (CAN_OK == CAN.begin(CAN_500KBPS)) {
       Serial.println("CAN BUS Shield init ok!");
@@ -49,8 +47,6 @@ void MCP2515_ISR() {
     id = CAN.getCanId();
 
     if (id == 0x10) prev_N4 = millis(); // serial monitor
-    if (id == 0x11) prev_N3 = millis(); // LCD
-    if (id == 0x12) prev_N1 = millis(); // LED and Motor
   }
 }
 
@@ -62,7 +58,7 @@ void loop() {
   int light = analogRead(LIGHT_PIN);
   if (light < 0 || light > 1023)
   {
-    Serial.println("Failed to read from DHT sensor.");
+    Serial.println("Failed to read from light sensor.");
     return;
   }
   Serial.print("Light Level: ");
@@ -76,7 +72,7 @@ void loop() {
   delay(2000);
 
   unsigned long now = millis();
-  if ((now - prev_N4 > timeout) || (now - prev_N3 > timeout) || (now - prev_N1 > timeout)) {
+  if (now - prev_N4 > timeout) {
     CAN.sendMsgBuf(0x30, 0, 8, (unsigned char*)"ALL_STOP");
     delay(2000);
   }
