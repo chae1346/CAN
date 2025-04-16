@@ -1,4 +1,4 @@
-// send connect
+// send connect msg
 // recieve debugging msg and display
 
 #include <df_can.h>
@@ -55,6 +55,6 @@ void MCP2515_ISR() {
 void loop() {
   if (millis() - prev_connect > 3000) {
     prev_connect = millis();
-    CAN.sendMsgBuf(0x10, 0, 8, (unsigned char*)"N4_OK__");
+    CAN.sendMsgBuf(0x12, 0, 8, (unsigned char*)"N4_OK__");
   }
 }
