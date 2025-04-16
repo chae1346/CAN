@@ -1,0 +1,69 @@
+#include <df_can.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+const int SPI_CS_PIN = 10;
+MCPCAN CAN(SPI_CS_PIN);
+
+// I2C LCD 설정
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+unsigned char len = 0;
+unsigned char buf[8];
+
+void setup()
+{
+  Serial.begin(9600);
+
+  lcd.init();       
+  lcd.backlight();   
+  lcd.print("CAN Init...");
+
+  int count = 50;
+  do {
+    CAN.init();
+    CAN.init_Mask(MCP_RXM0, 0, 0x7ff);
+    CAN.init_Mask(MCP_RXM1, 0, 0x7ff);
+    CAN.init_Filter(MCP_RXF0, 0, 0x03);
+
+    if (CAN_OK == CAN.begin(CAN_500KBPS)) {
+      Serial.println("CAN BUS Shield init ok!");
+      lcd.setCursor(0, 0);   
+      sendDebug("N3_Ready");
+      lcd.setCursor(0, 1);
+      lcd.print("Init Success!");
+      break;
+    } else {
+      delay(100);
+      if (count == 0)
+        lcd.print("Init Failed!");
+    }
+  } while (count--);
+}
+
+void loop()
+{
+  if (CAN_MSGAVAIL == CAN.checkReceive()) {
+    CAN.readMsgBuf(&len, buf);
+    unsigned char id = CAN.getCanId();
+
+      int light = (buf[0] << 8) | buf[1]; // 두 바이트를 결합하여 조도 값 저장
+
+      Serial.print("Light Value: ");
+      Serial.println(light);
+      sendDebug("N3_updat");
+
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Light Level:");
+      lcd.setCursor(0, 1);
+      lcd.print(light);
+    }
+  
+  delay(2000);
+}
+
+void sendDebug(const char* msg) {
+  CAN.sendMsgBuf(0x20, 0, 8, (unsigned char*)msg);
+}
